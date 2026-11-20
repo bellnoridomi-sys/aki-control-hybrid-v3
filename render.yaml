@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: aki-dev-original-ui
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm install --no-audit --no-fund
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 22.14.0
+      - key: NODE_ENV
+        value: production
+      - key: APP_NAME
+        value: Aki Dev
+      - key: SITE_URL
+        value: https://aki-dev-original-ui.onrender.com
+      - key: DISCORD_CLIENT_ID
+        sync: false
+      - key: DISCORD_CLIENT_SECRET
+        sync: false
+      - key: SESSION_ENCRYPTION_KEY
+        generateValue: true
+      - key: AKI_AGENT_TOKEN
+        sync: false
+      - key: TRUST_PROXY
+        value: "1"

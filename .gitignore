@@ -1,0 +1,17 @@
+node_modules/
+.env
+.env.*
+!.env.example
+.DS_Store
+npm-debug.log*
+*.log
+coverage/
+dist/
+backups/
+*.json.gz
+
+# Local Agent secrets and data
+.env
+agent/.env
+agent/data/
+node_modules/

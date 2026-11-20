@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050505">
+<title>Aki Dev — Local Agent Control</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/agent-control.css">
+</head>
+<body>
+<div class="site-shell">
+<header class="topbar">
+<a class="brand" href="/" aria-label="Aki Dev home"><span class="brand-mark"><span>A</span></span><span class="brand-copy"><b>AKI DEV</b><small>黒 / LIVING SIGNAL</small></span></a>
+<nav class="nav"><a href="/">Home</a><a href="/#dashboard">Control</a><a href="/agent-control.html">Local Agent</a></nav>
+<div class="top-actions"><span id="agent-pill" class="status-pill"><i></i><span>CHECKING</span></span><a class="btn btn-ghost btn-small" href="/auth/discord">SIGN IN</a></div>
+</header>
+<main class="agent-page">
+<div class="agent-kicker">AKI DEV / REMOTE OPERATIONS</div>
+<section class="agent-hero"><div><div class="micro-label"><span class="pulse-dot"></span> LOCAL EXECUTION CORE</div><h1>Control the<br><em>machine behind your bot.</em></h1><p>Discord Gateway, moderation, backups and server tasks run on your Windows PC. This page sends only approved commands to your authenticated Local Agent.</p></div><div class="agent-hero-mark">アキ</div></section>
+<section id="agent-login" class="agent-card hidden"><h2>Sign in with Discord</h2><p>Đăng nhập Discord bằng tài khoản có quyền Manage Server hoặc Administrator.</p><a class="btn btn-light" href="/auth/discord">SIGN IN WITH DISCORD ↗</a></section>
+<section id="agent-dashboard" class="hidden">
+<div class="agent-metrics">
+<article class="agent-card"><small>LOCAL AGENT</small><strong id="agent-state">OFFLINE</strong><span id="agent-host">Waiting for PC heartbeat</span></article>
+<article class="agent-card"><small>DISCORD GATEWAY</small><strong id="bot-state">OFFLINE</strong><span id="bot-tag">Discord Gateway</span></article>
+<article class="agent-card"><small>MANAGED SERVERS</small><strong id="guild-count">0</strong><span>Guilds visible to Local Agent</span></article>
+<article class="agent-card"><small>LAST HEARTBEAT</small><strong id="last-seen">—</strong><span id="agent-version">Agent version</span></article>
+</div>
+<div class="agent-grid">
+<section class="agent-card agent-controls">
+<div class="agent-section-head"><div><small>REMOTE COMMAND CENTER</small><h2>Server operations</h2></div><button id="refresh-btn" class="btn btn-ghost btn-small">REFRESH</button></div>
+<label class="agent-label" for="guild-select">Discord Server</label><select id="guild-select"><option value="">Đang tải server…</option></select>
+<div class="agent-button-grid">
+<button data-command="agent.ping" class="btn btn-light">PING AGENT</button><button data-command="guild.scan" class="btn btn-ghost">SCAN SERVER</button>
+<button data-command="backup.create" class="btn btn-ghost">CREATE BACKUP</button><button data-command="backup.list" class="btn btn-ghost">LIST BACKUPS</button>
+<button data-command="security.status" class="btn btn-ghost">ANTINUKE STATUS</button><button data-command="server.setup.preview" class="btn btn-ghost">PREVIEW BUILDER</button>
+<button data-command="server.setup.apply" class="btn btn-ghost">BUILD MISSING CHANNELS</button><button data-command="ticket.panel.create" class="btn btn-ghost">CREATE TICKET PANEL</button>
+</div>
+<div class="agent-section-head agent-subhead"><div><small>SECURITY CONFIGURATION</small><h2>Anti-Nuke monitor</h2></div></div>
+<label class="agent-toggle"><input id="security-enabled" type="checkbox"><span>Enable detection and alerts</span></label>
+<label class="agent-label" for="security-mode">Mode</label><select id="security-mode"><option value="monitor">Monitor only</option><option value="alert">Alert staff</option></select>
+<div class="agent-form-row">
+<label>Channel delete threshold<input id="threshold-channel" type="number" min="1" max="20" value="3"></label>
+<label>Role delete threshold<input id="threshold-role" type="number" min="1" max="20" value="3"></label>
+<label>Ban threshold<input id="threshold-ban" type="number" min="1" max="50" value="5"></label>
+<label>Window seconds<input id="threshold-window" type="number" min="3" max="120" value="10"></label>
+</div>
+<button id="save-security" class="btn btn-light">SAVE SECURITY CONFIG</button>
+<pre id="command-output" class="agent-output">Chưa có lệnh nào được gửi.</pre>
+</section>
+<section class="agent-card agent-logs"><div class="agent-section-head"><div><small>LOCAL ACTIVITY</small><h2>Agent logs</h2></div></div><div id="agent-log-list" class="agent-log-list"><p>Chưa có log.</p></div><div class="agent-footnote">Lệnh từ website được giới hạn trong allowlist. Bot Token chỉ nằm trên máy chạy Agent, không gửi lên Render.</div></section>
+</div>
+</section>
+</main>
+</div><script src="/agent-control.js" defer></script>
+</body></html>
