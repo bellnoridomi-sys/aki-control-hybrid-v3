@@ -1,12 +1,29 @@
 const ROUTES=['home','features','dashboard','commands','docs'];
-const COMMANDS=[['ping','Check bot latency'],['help','Show command help'],['server','Server overview'],['userinfo','Inspect a member'],['avatar','Show a member avatar'],['botinfo','Bot runtime info'],['rank','Level and XP'],['balance','View coins'],['daily','Claim daily coins'],['work','Work for coins'],['leaderboard','Level and coin rankings'],['welcome-setup','Configure welcome channel'],['goodbye-setup','Configure goodbye channel'],['poll','Create a reaction poll'],['8ball','Ask the anime orb'],['roll','Roll a random number'],['coinflip','Flip a coin'],['remind','Create a reminder'],['afk','Set AFK with optional image/GIF'],['warn','Warn a member'],['warnings','List member warnings'],['clear','Delete recent messages'],['slowmode','Set channel slowmode'],['lock','Lock a channel'],['unlock','Unlock a channel'],['kick','Kick a member'],['ban','Ban a member'],['timeout','Timeout a member'],['role','Add or remove a role'],['legit','Staff-only ✅ legit verification'],['ticket-setup','Post private ticket panel'],['role-panel','Post self-service emoji roles'],['announce','Send a styled announcement'],['vc-join','Join a voice channel'],['vc-leave','Leave voice'],['auto-voice','Toggle automatic voice recovery']];
 const state={route:'home',me:null,guild:null,config:null,roles:[],channels:[],commandDefinitions:[],commandMembers:[],commandMembersGuild:null,messageTemplates:{welcome:null,goodbye:null},socket:null};
 const $=id=>document.getElementById(id);
 function escapeHtml(v=''){return String(v).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
 async function fetchJson(url,options={}){const res=await fetch(url,{credentials:'same-origin',headers:{'Content-Type':'application/json',...(options.headers||{})},...options});const text=await res.text();let data={};try{data=JSON.parse(text)}catch{if(!res.ok)throw new Error(text||`HTTP ${res.status}`)}if(!res.ok){const code=data.error||`HTTP ${res.status}`;if(code==='NOT_AUTHENTICATED'){const wasAuthenticated=Boolean(state.me?.authenticated);state.me={authenticated:false};state.guild=null;state.config=null;state.socket?.disconnect();renderLoggedOut();if(wasAuthenticated)showToast('Phiên đăng nhập đã hết hạn. Hãy đăng nhập Discord lại.');throw new Error('Phiên đăng nhập đã hết hạn. Hãy đăng nhập Discord lại rồi thử lần nữa.')}throw new Error(data.message||code)}return data;}
 function showRoute(route,push=true){if(!ROUTES.includes(route))route='home';state.route=route;document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active',p.dataset.page===route));document.querySelectorAll('[data-route]').forEach(el=>el.classList.toggle('active',el.dataset.route===route));if(push&&location.hash.slice(1)!==route)history.pushState({},'',`#${route}`);const flash=$('transitionFlash');if(flash){flash.classList.remove('run');void flash.offsetWidth;flash.classList.add('run')}window.scrollTo({top:0,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});if(route==='dashboard')refreshDashboard();}
 function setupRoutes(){document.querySelectorAll('[data-route]').forEach(el=>el.addEventListener('click',e=>{const route=el.dataset.route;if(!route)return;if(el.tagName==='A')e.preventDefault();showRoute(route,true)}));addEventListener('hashchange',()=>showRoute(location.hash.slice(1)||'home',false));addEventListener('popstate',()=>showRoute(location.hash.slice(1)||'home',false));showRoute(location.hash.slice(1)||'home',false)}
-function renderCommands(){$('commandCatalog').innerHTML=COMMANDS.map(([name,desc],i)=>`<article class="command-item"><code>/${escapeHtml(name)}</code><p>${escapeHtml(desc)}</p><small>#${String(i+1).padStart(2,'0')}</small></article>`).join('')}
+const COMMAND_GROUPS = [
+ ['CƠ BẢN', new Set(['ping','help','server','userinfo','avatar','botinfo'])],
+ ['CỘNG ĐỒNG', new Set(['rank','balance','daily','work','leaderboard','poll','8ball','roll','coinflip','remind','reminders','reminder-cancel','afk','suggest','suggest-setup','shop','buy','tag','tag-set','tag-delete','faq-set','faq-delete','vouch','vouches','sell'])],
+ ['KIỂM DUYỆT', new Set(['warn','warnings','clear','slowmode','lock','unlock','kick','ban','tempban','timeout','unban','untimeout','delwarn','case','modlog','scamcheck','scam-add','legit'])],
+ ['THIẾT LẬP SERVER', new Set(['verify-setup','xp-setup','automod-setup','sell-setup','temp-voice-setup'])],
+ ['TIỆN ÍCH & PANEL', new Set(['ticket-setup','role-panel','announce','vc-join','vc-leave','auto-voice','giveaway','giveaway-reroll'])]
+];
+function commandGroup(name){return COMMAND_GROUPS.find(([,names])=>names.has(name))?.[0]||'KHÁC'}
+function renderCommands(query=''){
+ const host=$('commandCatalog');if(!host)return;
+ const needle=String(query||'').trim().toLowerCase();
+ const unique=[...new Map((state.commandDefinitions||[]).filter(item=>item?.name).map(item=>[item.name,item])).values()].sort((a,b)=>a.name.localeCompare(b.name));
+ const filtered=unique.filter(item=>(item.name+' '+(item.description||'')).toLowerCase().includes(needle));
+ if(!filtered.length){host.innerHTML='<p class="tiny-note">'+(unique.length?'Không tìm thấy lệnh phù hợp.':'Đang tải danh sách lệnh Discord…')+'</p>';return}
+ const grouped=new Map();
+ for(const item of filtered){const group=commandGroup(item.name);if(!grouped.has(group))grouped.set(group,[]);grouped.get(group).push(item)}
+ const order=[...COMMAND_GROUPS.map(([label])=>label),'KHÁC'];
+ host.innerHTML=order.filter(label=>grouped.has(label)).map(label=>'<section class="command-group"><h3 class="command-group-title">'+escapeHtml(label)+'</h3><div class="command-group-grid">'+grouped.get(label).map(item=>'<article class="command-item"><code>/'+escapeHtml(item.name)+'</code><p>'+escapeHtml(item.description||'')+'</p></article>').join('')+'</div></section>').join('');
+}
 function setupManualGallery(){const gallery=$('manualGallery');if(!gallery)return;const cards=[...gallery.querySelectorAll('.manual-card')],status=$('manualStatus'),labels={core:'01 / AKI CORE · GATEWAY + API',afk:'02 / AFK STUDIO · IMAGE + GIF',voice:'03 / VOICE CORE · RECONNECT'};cards.forEach((card,index)=>{card.addEventListener('pointermove',e=>{if(matchMedia('(prefers-reduced-motion: reduce)').matches)return;const r=card.getBoundingClientRect(),x=(e.clientX-r.left)/r.width-.5,y=(e.clientY-r.top)/r.height-.5;card.style.setProperty('--ry',`${x*9}deg`);card.style.setProperty('--rx',`${y*-7}deg`);card.style.setProperty('--rz',index===0?'-7deg':index===2?'7deg':'.5deg')});card.addEventListener('pointerleave',()=>{card.style.removeProperty('--ry');card.style.removeProperty('--rx')});card.addEventListener('focus',()=>card.classList.add('is-selected'));card.addEventListener('blur',()=>card.classList.remove('is-selected'));card.addEventListener('click',()=>{cards.forEach(c=>c.classList.remove('is-selected'));card.classList.add('is-selected');if(status)status.textContent=labels[card.dataset.manual]||'SELECTED';showToast(card.dataset.manual==='core'?'Aki Core selected — open Control to use it.':card.dataset.manual==='afk'?'AFK Studio selected — image/GIF ready.':'Voice Core selected — auto reconnect standby.')});card.addEventListener('keydown',e=>{if(e.key==='ArrowRight'){e.preventDefault();cards[(index+1)%cards.length].focus()}if(e.key==='ArrowLeft'){e.preventDefault();cards[(index-1+cards.length)%cards.length].focus()}})})}
 function showToast(message){let t=document.querySelector('#toast');if(!t){t=document.createElement('div');t.id='toast';t.className='response-box';t.style.cssText='position:fixed;left:50%;bottom:24px;z-index:90;width:min(520px,calc(100vw - 32px));transform:translateX(-50%);background:rgba(8,8,8,.94);color:#fff;box-shadow:0 20px 60px rgba(0,0,0,.4);';document.body.appendChild(t)}clearTimeout(t._timer);t.textContent=message;t.hidden=false;t._timer=setTimeout(()=>{t.hidden=true},1800)}
 function setupLivingWorld(){
@@ -36,7 +53,7 @@ function renderLoggedOut(){$('dashboardPanel').hidden=true;$('loginGate').hidden
 function renderLoggedIn(){$('dashboardPanel').hidden=false;$('loginGate').hidden=true;$('authButton').textContent='LOGOUT';$('authButton').onclick=()=>location.href='/auth/logout';const u=state.me.user||{};$('dashboardAuth').innerHTML=`<div class="auth-kicker">${u.provider==='discord'||u.discordId?'DISCORD LINKED':'SIGNED IN'}</div><b>${escapeHtml(u.username||'Aki user')}</b>${u.provider==='discord'||u.discordId?'':'<a class="auth-link" href="/auth/discord">LINK DISCORD →</a>'}`}
 function updateTop(){const ready=!!state.me?.bot?.ready;$('topStatus').textContent=ready?'BOT ONLINE':'WEB ONLINE';$('heroPing').textContent=ready?`${state.me.bot.ping}ms`:'—'}
 async function refreshPublicStats(){try{const data=await fetchJson('/api/public/stats');if($('publicGuildCount'))$('publicGuildCount').textContent=String(data.guilds??'—');if($('publicCommandCount'))$('publicCommandCount').textContent=String(data.commands??'—');if($('publicBotStatus'))$('publicBotStatus').textContent=data.botReady?'BOT ONLINE':'BOT OFFLINE'}catch{if($('publicBotStatus'))$('publicBotStatus').textContent='WEB ONLINE'}}
-async function boot(){renderCommands();setupRoutes();setupLivingWorld();setupManualGallery();setupControls();refreshPublicStats();try{const commandData=await fetchJson('/api/commands');state.commandDefinitions=commandData.commands||[];const list=$('commandNameOptions');if(list)list.innerHTML=state.commandDefinitions.map(command=>'<option value="'+escapeHtml(command.name)+'">'+escapeHtml(command.description||'')+'</option>').join('');renderDynamicCommandForm()}catch{}$('refreshGuilds')?.addEventListener('click',refreshGuildList);renderLoggedOut();try{state.me=await fetchJson('/api/me')}catch{state.me={authenticated:false}}if(state.me.authenticated){renderLoggedIn();renderGuildHint();await populateGuilds()}updateTop();refreshOverview();if(window.io&&state.me.authenticated){state.socket=io({transports:['websocket','polling']});state.socket.on('connect',watchCurrentGuild);state.socket.on('bot-status',refreshOverview);state.socket.on('activity',row=>{if(state.route==='dashboard'&&state.guild&&row?.guild_id===state.guild.id)refreshActivity()});state.socket.on('socket-error',data=>showToast('Realtime: '+(data?.error||'lỗi kết nối')))}}
+async function boot(){renderCommands();setupRoutes();setupLivingWorld();setupManualGallery();setupControls();refreshPublicStats();try{const commandData=await fetchJson('/api/commands');state.commandDefinitions=commandData.commands||[];const list=$('commandNameOptions');if(list)list.innerHTML=state.commandDefinitions.map(command=>'<option value="'+escapeHtml(command.name)+'">'+escapeHtml(command.description||'')+'</option>').join('');renderCommands($('commandSearch')?.value||'');renderDynamicCommandForm()}catch{}$('refreshGuilds')?.addEventListener('click',refreshGuildList);renderLoggedOut();try{state.me=await fetchJson('/api/me')}catch{state.me={authenticated:false}}if(state.me.authenticated){renderLoggedIn();renderGuildHint();await populateGuilds()}updateTop();refreshOverview();if(window.io&&state.me.authenticated){state.socket=io({transports:['websocket','polling']});state.socket.on('connect',watchCurrentGuild);state.socket.on('bot-status',refreshOverview);state.socket.on('activity',row=>{if(state.route==='dashboard'&&state.guild&&row?.guild_id===state.guild.id)refreshActivity()});state.socket.on('socket-error',data=>showToast('Realtime: '+(data?.error||'lỗi kết nối')))}}
 function watchCurrentGuild(){if(!state.socket)return;if(state.guild?.id&&state.guild.botPresent!==false)state.socket.emit('watch-guild',state.guild.id);else state.socket.emit('unwatch-guild')}
 async function refreshOverview(){try{const d=await fetchJson('/api/overview');$('heroCommands').textContent=d.bot.commands;$('heroPing').textContent=d.bot.ready?`${d.bot.ping}ms`:'—';$('metricCommands').textContent=d.bot.commands;$('metricPing').textContent=d.bot.ready?`${d.bot.ping}ms`:'—';$('matrixGateway').textContent=d.bot.ready?'connected':'waiting';$('matrixDb').textContent=d.persistence;$('matrixVoice').textContent=d.bot.ready?'ready':'standby';$('botDot').classList.toggle('on',!!d.bot.ready);if(state.me)state.me.bot=d.bot;updateTop()}catch{}}
 async function refreshGuildList(){const button=$('refreshGuilds');if(button){button.disabled=true;button.textContent='ĐANG LÀM MỚI...'}try{const fresh=await fetchJson('/api/me');state.me=fresh;if(!fresh.authenticated){renderLoggedOut();throw new Error('Phiên đăng nhập hết hạn; hãy đăng nhập Discord lại.')}renderLoggedIn();renderGuildHint();await populateGuilds();showToast('Đã làm mới danh sách server.')}catch(e){showToast('Không thể làm mới server: '+e.message)}finally{if(button){button.disabled=false;button.textContent='↻ LÀM MỚI SERVER'}}}
@@ -50,7 +67,7 @@ async function loadGuild(){
  try{
   const d=await fetchJson(`/api/guilds/${state.guild.id}/config`);state.config=d.config;state.roles=d.roles||[];state.commandMembers=[];state.commandMembersGuild=null;
   const autoSelect=$('autoRoleSelect');if(autoSelect){autoSelect.innerHTML='<option value="">Tắt auto-role</option>'+(d.roles||[]).map(r=>`<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('');autoSelect.value=d.config.auto_role_id||''}
-  $('metricMembers').textContent=d.stats.members;$('metricChannels').textContent=d.stats.channels;$('metricPing').textContent=`${d.stats.ping}ms`;$('metricCommands').textContent=state.me.bot?.commands??COMMANDS.length;$('autoVoice').checked=!!d.config.auto_voice_enabled;
+  $('metricMembers').textContent=d.stats.members;$('metricChannels').textContent=d.stats.channels;$('metricPing').textContent=`${d.stats.ping}ms`;$('metricCommands').textContent=state.me.bot?.commands??state.commandDefinitions.length;$('autoVoice').checked=!!d.config.auto_voice_enabled;
   await loadChannels();renderDynamicCommandForm();await loadMessageTemplates();await loadAfk();await refreshActivity();watchCurrentGuild();
  }catch(e){flash('responseBox',e.message,true)}
 }
@@ -61,6 +78,12 @@ async function loadChannels(){
  $('textChannel').innerHTML=text.length?text.map(c=>`<option value="${c.id}"># ${escapeHtml(c.name)}</option>`).join(''):'<option value="">Default text channel</option>';
  const log=$('logChannel');if(log){log.innerHTML='<option value="">Chỉ log trên web</option>'+text.map(c=>`<option value="${c.id}"># ${escapeHtml(c.name)}</option>`).join('');log.value=state.config?.log_channel_id||''}
  for(const id of ['rolePanelChannel','ticketPanelChannel','announcementChannel']){const el=$(id);if(el){const old=el.value;el.innerHTML='<option value="">Chọn kênh text</option>'+text.map(c=>`<option value="${c.id}"># ${escapeHtml(c.name)}</option>`).join('');if(text.some(c=>c.id===old))el.value=old;else{const preferred=id==='rolePanelChannel'?'🎭・nhận-role':id==='ticketPanelChannel'?'🎫・mở-ticket':'📣・thông-báo';el.value=text.find(c=>c.name===preferred)?.id||text[0]?.id||''}}}
+  for(const [id,key,label] of [['welcomeChannel','welcome_channel_id','chào mừng'],['goodbyeChannel','goodbye_channel_id','tạm biệt']]){
+   const el=$(id);if(!el)continue;
+   const configured=state.config?.[key]||'';
+   el.innerHTML='<option value="">Tắt tin nhắn '+label+'</option>'+text.map(c=>`<option value="${c.id}"># ${escapeHtml(c.name)}</option>`).join('');
+   el.value=text.some(c=>c.id===configured)?configured:'';
+  }
 }
 async function loadAfk(){try{const d=await fetchJson(`/api/guilds/${state.guild.id}/afk`);if(d.active){$('afkReason').value=d.afk.reason||'';$('afkMedia').value=d.afk.media_url||'';$('afkStatus').textContent='ACTIVE'}else{$('afkReason').value='';$('afkMedia').value='';$('afkStatus').textContent='IDLE'}updateAfkPreview()}catch(e){$('afkStatus').textContent=e.message==='DISCORD_LINK_REQUIRED'?'LINK DISCORD':'UNAVAILABLE'}}
 function updateAfkPreview(){const reason=$('afkReason')?.value.trim()||'Your reason will appear here.';const url=$('afkMedia')?.value.trim();$('afkPreviewText').textContent=reason;const box=$('afkMediaPreview');box.innerHTML='';if(url&&/^https?:\/\//i.test(url)){const img=new Image();img.alt='AFK preview';img.onload=()=>box.appendChild(img);img.onerror=()=>{box.innerHTML='<span>MEDIA URL ERROR</span>'};img.src=url}else box.innerHTML='<span>PREVIEW / AFK MEDIA</span>'}
@@ -228,6 +251,21 @@ async function loadMessageTemplates(){
   }catch(error){const status=$(kind+'TemplateStatus');if(status)status.textContent='ERROR · '+error.message}
  }
 }
+async function saveMemberChannels(){
+ if(!state.guild||state.guild.botPresent===false)return flash('memberChannelStatus','Bot chưa có trong server này.',true);
+ const button=$('saveMemberChannels');if(button){button.disabled=true;button.textContent='ĐANG LƯU...'}
+ try{
+  const data=await fetchJson(`/api/guilds/${state.guild.id}/config`,{method:'PUT',body:JSON.stringify({
+   welcome_channel_id:$('welcomeChannel').value||null,
+   goodbye_channel_id:$('goodbyeChannel').value||null
+  })});
+  state.config=data.config;
+  const enabled=[data.config.welcome_channel_id?'chào mừng':'',data.config.goodbye_channel_id?'tạm biệt':''].filter(Boolean);
+  flash('memberChannelStatus',enabled.length?'✅ Đã lưu kênh '+enabled.join(' và ')+'.':'✅ Đã tắt cả hai thông báo.');
+  await refreshActivity();
+ }catch(error){flash('memberChannelStatus','ERROR · '+error.message,true)}
+ finally{if(button){button.disabled=false;button.textContent='LƯU CẤU HÌNH KÊNH ↗'}}
+}
 async function saveMessageTemplate(kind){
  if(!state.guild)return flash(kind+'TemplateStatus','ERROR · hãy chọn server',true);
  const status=$(kind+'TemplateStatus'),button=$(kind==='welcome'?'saveWelcomeTemplate':'saveGoodbyeTemplate');
@@ -267,6 +305,8 @@ async function postRolePanel(){if(!state.guild||!$('rolePanelChannel').value)ret
 async function postTicketPanel(){if(!state.guild||!$('ticketPanelChannel').value)return flash('automationStatus','Chọn kênh text để đăng ticket panel.',true);try{const d=await fetchJson(`/api/guilds/${state.guild.id}/tickets/setup`,{method:'POST',body:JSON.stringify({channelId:$('ticketPanelChannel').value})});flash('automationStatus','✅ Ticket panel đã được đăng vào Discord. Message: '+d.messageId);await refreshActivity()}catch(e){flash('automationStatus','ERROR · '+e.message,true)}}
 function setupControls(){
  $('sendAnnouncement')?.addEventListener('click',sendDashboardAnnouncement);
+ $('saveMemberChannels')?.addEventListener('click',saveMemberChannels);
+ $('commandSearch')?.addEventListener('input',()=>renderCommands($('commandSearch').value));
  for(const id of ['announcementTitle','announcementMessage','announcementImageUrl','announcementButtonLabel','announcementButtonUrl']){
   $(id)?.addEventListener('input',renderAnnouncementPreview);
  }
