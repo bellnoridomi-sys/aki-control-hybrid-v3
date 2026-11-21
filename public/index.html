@@ -205,7 +205,15 @@
           </article>
           <article class="panel control-card message-template-editor-card">
             <div class="panel-title"><div><span>EMBED STUDIO</span><h3>👋 Welcome & Goodbye</h3></div><span class="status-chip">LIVE PREVIEW</span></div>
-            <p class="tiny-note">Tuỳ chỉnh lời chào khi thành viên vào/rời server. Hỗ trợ biến {user}, {server}, ảnh HTTPS và nút liên kết HTTPS. Kênh gửi vẫn cấu hình bằng /welcome-setup và /goodbye-setup.</p>
+            <p class="tiny-note">Chọn kênh cho từng sự kiện và lưu một lần ở đây; sau đó tuỳ chỉnh embed riêng bên dưới. Để trống một kênh sẽ tắt riêng thông báo đó. Bot cần quyền xem kênh, gửi tin nhắn và nhúng liên kết.</p>
+            <div class="member-channel-setup">
+              <div class="member-channel-setup-grid">
+                <div class="member-channel-field"><span class="member-channel-eyebrow">01 / THÀNH VIÊN MỚI</span><label for="welcomeChannel">👋 KÊNH CHÀO MỪNG</label><select id="welcomeChannel"><option value="">Tắt tin nhắn chào mừng</option></select><small>Gửi khi có người tham gia server.</small></div>
+                <div class="member-channel-field"><span class="member-channel-eyebrow">02 / THÀNH VIÊN RỜI ĐI</span><label for="goodbyeChannel">👋 KÊNH TẠM BIỆT</label><select id="goodbyeChannel"><option value="">Tắt tin nhắn tạm biệt</option></select><small>Gửi khi có người rời, bị kick hoặc ban khỏi server.</small></div>
+              </div>
+              <div class="button-row member-channel-actions"><button class="btn btn-light" id="saveMemberChannels" type="button">LƯU CẤU HÌNH KÊNH ↗</button></div>
+              <pre id="memberChannelStatus" class="response-box">READY · chọn kênh chào mừng và/hoặc tạm biệt</pre>
+            </div>
             <div class="message-template-grid">
               <section class="message-template-section">
                 <h4>WELCOME · THÀNH VIÊN MỚI</h4>
@@ -244,8 +252,9 @@
     </section>
 
     <section class="page" data-page="commands" aria-labelledby="commands-title">
-      <div class="page-head"><div><div class="eyebrow">03 / COMMANDS</div><h2 id="commands-title">36 tools.<br><span>No filler.</span></h2></div><p>Slash commands thật được đăng ký qua Discord HTTP API. Prefix `!` hỗ trợ lệnh nhanh; tài khoản được cấu hình có thể dùng `+legit` để bot thả ✅ vào chính tin nhắn lệnh.</p></div>
-      <div id="commandCatalog" class="command-catalog"></div>
+      <div class="page-head"><div><div class="eyebrow">03 / COMMANDS</div><h2 id="commands-title">Command<br><span>deck.</span></h2></div><p>Danh sách lấy trực tiếp từ các slash command đang đăng ký trên Discord, chia nhóm rõ ràng và có thể tìm theo tên hoặc mô tả.</p></div>
+      <div class="command-search"><span>⌕</span><input id="commandSearch" type="search" placeholder="Tìm lệnh, ví dụ: ban, ticket, voice..." autocomplete="off"></div>
+      <div id="commandCatalog" class="command-catalog"><p class="tiny-note">Đang tải danh sách lệnh Discord…</p></div>
     </section>
 
     <section class="page" data-page="docs" aria-labelledby="docs-title">
