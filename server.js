@@ -5040,8 +5040,10 @@ app.post('/api/guilds/:guildId/server-builder', requireAuth, async (req, res) =>
         reason: 'Aki Server Builder private archive for unused legacy channels'
       });
       for (const channel of legacyLeftovers) {
-        await channel.setParent(archiveCategory.id, { lockPermissions: true, reason: 'Archive unused Aki builder channel; retain messages' });
-        result.archivedChannels.push({ name: channel.name, type: channel.type === ChannelType.GuildVoice ? 'voice' : 'text' });
+        if (channel.parentId !== archiveCategory.id) {
+          await channel.setParent(archiveCategory.id, { lockPermissions: true, reason: 'Archive unused Aki builder channel; retain messages' });
+          result.archivedChannels.push({ name: channel.name, type: channel.type === ChannelType.GuildVoice ? 'voice' : 'text' });
+        }
       }
       result.categories.push({ name: archiveCategory.name, created: archiveCreated, private: true });
     }
