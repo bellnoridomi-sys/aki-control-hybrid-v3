@@ -77,7 +77,7 @@ async function loadChannels(){
  $('voiceChannel').innerHTML=voice.length?voice.map(c=>`<option value="${c.id}">${escapeHtml(c.name)}</option>`).join(''):'<option value="">No voice channel</option>';if(state.config?.auto_voice_channel_id)$('voiceChannel').value=state.config.auto_voice_channel_id;
  $('textChannel').innerHTML=text.length?text.map(c=>`<option value="${c.id}"># ${escapeHtml(c.name)}</option>`).join(''):'<option value="">Default text channel</option>';
  const log=$('logChannel');if(log){log.innerHTML='<option value="">Chỉ log trên web</option>'+text.map(c=>`<option value="${c.id}"># ${escapeHtml(c.name)}</option>`).join('');log.value=state.config?.log_channel_id||''}
- for(const id of ['rolePanelChannel','ticketPanelChannel','announcementChannel']){const el=$(id);if(el){const old=el.value;el.innerHTML='<option value="">Chọn kênh text</option>'+text.map(c=>`<option value="${c.id}"># ${escapeHtml(c.name)}</option>`).join('');if(text.some(c=>c.id===old))el.value=old;else{const preferred=id==='rolePanelChannel'?'🎭・nhận-role':id==='ticketPanelChannel'?'🎫・mở-ticket':'📣・thông-báo';el.value=text.find(c=>c.name===preferred)?.id||text[0]?.id||''}}}
+ for(const id of ['rolePanelChannel','ticketPanelChannel','announcementChannel']){const el=$(id);if(el){const old=el.value;el.innerHTML='<option value="">Chọn kênh text</option>'+text.map(c=>`<option value="${c.id}"># ${escapeHtml(c.name)}</option>`).join('');if(text.some(c=>c.id===old))el.value=old;else{const preferred=id==='rolePanelChannel'?'🎭・『nhận-role』':id==='ticketPanelChannel'?'🎫・『mở-ticket』':'🎉・『sự-kiện』';el.value=text.find(c=>c.name===preferred)?.id||text[0]?.id||''}}}
   for(const [id,key,label] of [['welcomeChannel','welcome_channel_id','chào mừng'],['goodbyeChannel','goodbye_channel_id','tạm biệt']]){
    const el=$(id);if(!el)continue;
    const configured=state.config?.[key]||'';
@@ -164,15 +164,15 @@ function collectDynamicCommandArgs(){
 async function executeCommand(){if(!state.guild)return flash('responseBox','ERROR · SELECT A SERVER',true);try{const name=$('commandName').value.trim().replace(/^\//,'').toLowerCase();const dangerous=['ban','tempban','kick','timeout','untimeout','unban','delwarn','scam-add','role','clear','lock','unlock','vc-join','vc-leave'];if(dangerous.includes(name)&&!window.confirm('Xác nhận chạy lệnh nguy hiểm /'+name+' trên server đã chọn?'))return;let args={};const raw=$('commandArgs').value.trim();if(raw){try{args=JSON.parse(raw)}catch{throw new Error('JSON nâng cao không hợp lệ.')}}else args=collectDynamicCommandArgs();const d=await fetchJson(`/api/guilds/${state.guild.id}/command`,{method:'POST',body:JSON.stringify({name,args,channelId:$('textChannel').value||undefined})});flash('responseBox',`OK · /${d.command}\n${d.payload}`);await refreshActivity()}catch(e){flash('responseBox',`ERROR · ${e.message}`,true)}}
 
 const BUILDER_TEMPLATES={community:{groups:[
- ['📌・BẮT ĐẦU','📜・nội-quy','👋・chào-mừng','✅・xác-minh','🎭・nhận-role','📣・thông-báo'],
- ['💬・TRÒ CHUYỆN & GIAO LƯU','💬・chat-chung','👋・giới-thiệu','🤝・làm-quen','🫶・tìm-bạn','❓・hỏi-đáp','🌏・tám-chuyện','📸・khoe-ảnh','😂・meme','🎨・sáng-tạo','🎧・chia-sẻ-nhạc','💡・ý-tưởng'],
- ['🎮・GAME & KẾT BẠN','🎮・game-chat','🧑‍🤝‍🧑・tìm-đồng-đội','🔎・tìm-party','🏆・khoe-rank','🎬・clip-game','🗓️・lịch-chơi','🕹️・game-khac','🎁・giveaway'],
- ['🛍️・BUÔN BÁN & TRADE','🛍️・chợ-giao-dịch','📦・đăng-bán','🛒・tìm-mua','🔁・trao-đổi','💬・hỏi-giá','⭐・đánh-giá-giao-dịch','✅・legit-vouches','🛡️・yêu-cầu-middleman','🚨・báo-cáo-scam'],
- ['🎉・BOT & GIẢI TRÍ','🎲・bot-commands','📊・bình-chọn','🎉・sự-kiện','🤖・bot-spam','📜・góp-ý'],
- ['🎫・HỖ TRỢ','🎫・mở-ticket','❔・faq-hỗ-trợ','🧾・hướng-dẫn-giao-dịch'],
- ['🔊・PHÒNG VOICE','🔊・voice-lounge','🎮・gaming-party-1','🎮・gaming-party-2','🎮・gaming-party-3','🤝・kết-bạn-voice','🛍️・trade-talk','🌙・chill-room','🎵・music-lounge'],
- ['🛡️・ĐỘI NGŨ','🛡️・staff-chat','🧾・staff-log','✅・legit-review','🛍️・trade-reports','🎫・ticket-staff','🔨・mod-actions']
-]} };
+ ['📌・『BẮT ĐẦU』','📜・『nội-quy』','👋・『chào-mừng』','✅・『xác-minh』','🎭・『nhận-role』'],
+ ['💬・『CỘNG ĐỒNG』','💬・『chat-chung』','🙋・『giới-thiệu』','🌏・『tám-chuyện』','📸・『chia-sẻ-ảnh』'],
+ ['🎮・『GAMING』','🎮・『game-chat』','🤝・『tìm-đồng-đội』','🏆・『khoe-rank』','🎬・『highlight』'],
+ ['🛍️・『TRADE』','🛍️・『chợ-giao-dịch』','📦・『đăng-bán』','🔎・『tìm-mua』','✅・『đánh-giá』'],
+ ['🎉・『GIẢI TRÍ』','🤖・『bot-commands』','📊・『bình-chọn』','🎉・『sự-kiện』'],
+ ['🎫・『HỖ TRỢ』','🎫・『mở-ticket』','❔・『faq-hỗ-trợ』','🧾・『hướng-dẫn』'],
+ ['🔊・『VOICE』','🔊・『voice-lounge』','🎮・『gaming-party』','🌙・『chill-room』'],
+ ['🛡️・『STAFF』','🛡️・『staff-chat』','🧾・『staff-log』','✅・『legit-review』','🎫・『ticket-staff』']
+]}};
 function renderBuilderPreview(){
  const preset=$('builderPreset')?.value||'community',template=BUILDER_TEMPLATES[preset];
  if(!$('builderPreviewList'))return;
@@ -184,10 +184,10 @@ async function runServerBuilder(){
  const button=$('runBuilder');if(button)button.disabled=true;
  try{
   const preset=$('builderPreset').value,topic=$('builderTopic').value.trim();
-  if(!confirm('Build template '+preset+' cho server "'+state.guild.name+'". Kênh/role đã có sẽ được giữ nguyên. Tiếp tục?'))return;
+  if(!confirm('Dựng layout gọn cho server "'+state.guild.name+'"? Kênh Aki cũ còn dùng sẽ được đổi tên/sắp xếp; kênh Aki không còn dùng sẽ chuyển vào kho riêng tư cho staff. Không xoá kênh hay tin nhắn. Tiếp tục?'))return;
   const d=await fetchJson('/api/guilds/'+state.guild.id+'/server-builder',{method:'POST',body:JSON.stringify({preset,topic})});
   const r=d.result;
-  flash('builderResponse','✅ HOÀN TẤT\nĐã tạo: '+r.categories.filter(x=>x.created).length+' danh mục · '+r.channels.length+' kênh mới · '+r.roles.filter(x=>x.created).length+' role mới ('+r.roles.length+' role tổng)\n🎭 Role panel: '+(r.automation?.rolePanel?.ok?'✅ sẵn sàng':'⚠️ chưa đăng')+' · 🎫 Ticket panel: '+(r.automation?.ticketPanel?.ok?'✅ sẵn sàng':'⚠️ chưa đăng')+'\nBỏ qua mục đã có: '+r.skipped.length+(r.warnings?.length?'\n⚠️ '+r.warnings.join('\n⚠️ '):'')+'\n'+(r.channels.map(c=>(c.type==='voice'?'🔊':'#')+' '+c.name).join('\n')||'Không có kênh mới cần tạo.'));
+  flash('builderResponse','✅ HOÀN TẤT\nĐã tạo: '+r.channels.length+' kênh mới · đã sắp xếp/đổi tên: '+(r.migratedChannels?.length||0)+' kênh · chuyển vào kho riêng tư: '+(r.archivedChannels?.length||0)+' kênh cũ (không xoá tin nhắn).\n🎭 Role panel: '+(r.automation?.rolePanel?.ok?'✅ sẵn sàng':'⚠️ chưa đăng')+' · 🎫 Ticket panel: '+(r.automation?.ticketPanel?.ok?'✅ sẵn sàng':'⚠️ chưa đăng')+'\nBỏ qua mục đã có: '+r.skipped.length+(r.warnings?.length?'\n⚠️ '+r.warnings.join('\n⚠️ '):'')+'\n'+(r.channels.map(c=>(c.type==='voice'?'🔊':'#')+' '+c.name).join('\n')||'Không có kênh mới cần tạo.'));
   await loadGuild();await refreshActivity();
  }catch(e){flash('builderResponse','ERROR · '+e.message,true)}
  finally{if(button)button.disabled=false}

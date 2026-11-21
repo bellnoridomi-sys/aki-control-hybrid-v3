@@ -31,7 +31,8 @@ import { keepsCommandResultPrivate, summarizeCommandResult } from './lib/command
 import { normalizeMessageTemplate, renderMessageTemplate } from './lib/message-template-utils.js';
 import { normalizeMemberChannelSelection, isMemberMessageChannel } from './lib/member-channel-utils.js';
 import { checkCommandCooldown, normalizeAutocompleteChoices, formatReminderList } from './lib/ux-utils.js';
-import { getCommandRegistrationScopes } from './lib/command-registration-utils.js';
+import { getCommandRegistrationScopes, getGuildCommandCleanupIds } from './lib/command-registration-utils.js';
+import { getServerBuilderGroups, getLegacyBuilderChannelName, getLegacyBuilderChannelNames, getLegacyBuilderCategoryName, getTicketCategoryName } from './lib/server-builder-layout.js';
 import { safeRuntimeErrorCode, classifyGatewayDebugMessage, classifyDiscordRestRoute, normalizeRateLimitDiagnostics, normalizeDiscordRestResponseDiagnostics, normalizeRetryAfterBodyValue } from './lib/runtime-diagnostics-utils.js';
 import { normalizeBlockedDomains, findBlockedDomain, isMassMention, recentTimestamps, isRaidJoinBurst } from './lib/automod-utils.js';
 import { isOpenAkiTicket, parseAkiTicketTopic, ticketDeletionDelay, TICKET_RETENTION_MS, normalizeTicketType, ticketTypeLabel } from './lib/ticket-utils.js';
@@ -1842,12 +1843,16 @@ async function ensureTicketCategory(guild) {
   ];
   const staffRoles = [];
   for (const spec of staffSpecs) staffRoles.push(await ensureNamedRole(guild, spec.name, spec.color, spec.permissions));
-  let category = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === '🎫・TICKETS');
+  const ticketCategoryName = getTicketCategoryName();
+  let category = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === ticketCategoryName)
+    || guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === '🎫・TICKETS');
   if (!category) {
     const overwrites = [{ id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] }];
     for (const role of staffRoles) overwrites.push({ id: role.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] });
     overwrites.push({ id: me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] });
-    category = await guild.channels.create({ name: '🎫・TICKETS', type: ChannelType.GuildCategory, permissionOverwrites: overwrites, reason: 'Aki ticket system setup' });
+    category = await guild.channels.create({ name: ticketCategoryName, type: ChannelType.GuildCategory, permissionOverwrites: overwrites, reason: 'Aki ticket system setup' });
+  } else if (category.name !== ticketCategoryName) {
+    await category.setName(ticketCategoryName, 'Aki ticket category naming update');
   }
   return { category, staffRoles, me };
 }
@@ -3588,26 +3593,18 @@ bot.on('ready', async () => {
   const presenceText = String(process.env.BOT_PRESENCE_TEXT || (APP_NAME + ' · /help')).trim().slice(0,128) || (APP_NAME + ' · /help');
   bot.user.setPresence({ status: presenceStatus, activities: [{ name: presenceText, type: presenceType }] });
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-  const guildId = String(process.env.DISCORD_GUILD_ID || '').trim();
-  const registrationScopes = getCommandRegistrationScopes(guildId);
-  if (guildId && !/^\d{17,20}$/.test(guildId)) {
-    runtimeDiagnostics.commands.guild.state = 'invalid_guild_id';
-    console.warn('DISCORD_GUILD_ID is invalid; registering global commands only.');
-  }
+  const registrationScopes = getCommandRegistrationScopes();
   runtimeDiagnostics.commands.total = commands.length;
-  // Register both scopes independently: an invalid optional test guild must not mask
-  // a successful global registration, and vice versa.
+  let globalRegistrationSucceeded = false;
   for (const scope of registrationScopes) {
     const scopeStatus = runtimeDiagnostics.commands[scope];
     scopeStatus.state = 'registering';
     scopeStatus.errorCode = null;
     scopeStatus.lastAttemptAt = new Date().toISOString();
     try {
-      if (scope === 'guild') {
-        await rest.put(Routes.applicationGuildCommands(bot.user.id, guildId), { body: commands });
-        console.log(`Registered ${commands.length} guild commands in the configured development server.`);
-      } else {
+      if (scope === 'global') {
         await rest.put(Routes.applicationCommands(bot.user.id), { body: commands });
+        globalRegistrationSucceeded = true;
         console.log(`Registered ${commands.length} global commands.`);
       }
       scopeStatus.state = 'registered';
@@ -3619,6 +3616,38 @@ bot.on('ready', async () => {
       runtimeDiagnostics.commands.lastErrorCode = code;
       console.error(`Command registration failed for ${scope} scope:`, code);
     }
+  }
+
+  // Earlier versions published the same command set globally and per guild.
+  // Remove those stale guild-scoped copies so Discord only shows one /help, etc.
+  if (globalRegistrationSucceeded) {
+    runtimeDiagnostics.commands.guild.state = 'cleaning_legacy_duplicates';
+    runtimeDiagnostics.commands.guild.lastAttemptAt = new Date().toISOString();
+    runtimeDiagnostics.commands.guild.errorCode = null;
+    const guildIdsToClean = getGuildCommandCleanupIds([...bot.guilds.cache.keys()]);
+    let removedGuildCommandCount = 0;
+    let guildCleanupFailures = 0;
+    for (const guildId of guildIdsToClean) {
+      try {
+        const existingGuildCommands = await rest.get(Routes.applicationGuildCommands(bot.user.id, guildId));
+        if (Array.isArray(existingGuildCommands) && existingGuildCommands.length) {
+          await rest.put(Routes.applicationGuildCommands(bot.user.id, guildId), { body: [] });
+          removedGuildCommandCount += existingGuildCommands.length;
+          console.log(`Removed ${existingGuildCommands.length} legacy guild-scoped commands from ${bot.guilds.cache.get(guildId)?.name || guildId}.`);
+        }
+      } catch (error) {
+        guildCleanupFailures += 1;
+        const code = safeRuntimeErrorCode(error);
+        runtimeDiagnostics.commands.guild.errorCode = code;
+        runtimeDiagnostics.commands.lastErrorCode = code;
+        console.warn(`Could not remove legacy guild-scoped commands from ${guildId}:`, code);
+      }
+    }
+    runtimeDiagnostics.commands.guild.state = guildCleanupFailures ? 'cleanup_partial' : 'legacy_duplicates_cleared';
+    runtimeDiagnostics.commands.guild.lastSuccessAt = guildCleanupFailures ? runtimeDiagnostics.commands.guild.lastSuccessAt : new Date().toISOString();
+    console.log(`Guild command cleanup complete: ${removedGuildCommandCount} duplicate command registrations removed; ${guildCleanupFailures} failures.`);
+  } else {
+    runtimeDiagnostics.commands.guild.state = 'cleanup_skipped_global_sync_failed';
   }
   for (const guild of bot.guilds.cache.values()) {
     await guild.channels.fetch().catch(() => {});
@@ -4906,19 +4935,8 @@ app.post('/api/guilds/:guildId/server-builder', requireAuth, async (req, res) =>
     }
     const preset = ['community', 'gaming', 'anime', 'market'].includes(req.body?.preset) ? req.body.preset : 'community';
     const topic = String(req.body?.topic || '').trim().slice(0, 180);
-    const prefix = { community: '🌐', gaming: '🎮', anime: '🌸', market: '🛍️' }[preset];
-    // Combined template with all three primary themes: social, gaming and trade.
-    const templates = {
-      start: [['📜・nội-quy','Đọc nội quy trước khi tham gia.'],['👋・chào-mừng',topic || 'Chào mừng đến với cộng đồng!'],['✅・xác-minh','Thông tin xác minh và quy tắc an toàn.'],['🎭・nhận-role','Dùng bảng role để chọn sở thích.'],['📣・thông-báo','Thông báo chính thức từ đội ngũ.']],
-      community: [['💬・chat-chung','Trò chuyện và giao lưu cùng mọi người.'],['👋・giới-thiệu','Giới thiệu bản thân và sở thích.'],['🤝・làm-quen','Làm quen bạn mới.'],['🫶・tìm-bạn','Tìm bạn nói chuyện và kết bạn.'],['❓・hỏi-đáp','Hỏi đáp chung.'],['🌏・tám-chuyện','Chủ đề đời sống và tán gẫu.'],['📸・khoe-ảnh','Chia sẻ ảnh và khoảnh khắc.'],['😂・meme','Meme vui vẻ.'],['🎨・sáng-tạo','Fan art, thiết kế và sáng tạo.'],['🎧・chia-sẻ-nhạc','Chia sẻ bài nhạc yêu thích.'],['💡・ý-tưởng','Đóng góp ý tưởng cho server.']],
-      gaming: [['🎮・game-chat','Trò chuyện về game.'],['🧑‍🤝‍🧑・tìm-đồng-đội','Tìm teammate và lập party.'],['🔎・tìm-party','Đăng lịch và tìm nhóm chơi.'],['🏆・khoe-rank','Chia sẻ rank và thành tích.'],['🎬・clip-game','Clip highlight và gameplay.'],['🗓️・lịch-chơi','Hẹn giờ chơi cùng nhau.'],['🕹️・game-khac','Các tựa game khác.'],['🎁・giveaway','Quà tặng và sự kiện game.']],
-      trade: [['🛍️・chợ-giao-dịch','Khu vực mua bán và trao đổi.'],['📦・đăng-bán','Đăng sản phẩm muốn bán.'],['🛒・tìm-mua','Đăng nhu cầu muốn mua.'],['🔁・trao-đổi','Trade và trao đổi vật phẩm.'],['💬・hỏi-giá','Tham khảo giá và định giá.'],['⭐・đánh-giá-giao-dịch','Đánh giá giao dịch đã hoàn tất.'],['✅・legit-vouches','Lịch sử xác nhận legit từ staff.'],['🛡️・yêu-cầu-middleman','Yêu cầu trung gian khi cần.'],['🚨・báo-cáo-scam','Báo cáo giao dịch đáng ngờ.']],
-      fun: [['🎲・bot-commands','Dùng lệnh bot tại đây.'],['📊・bình-chọn','Poll và bình chọn cộng đồng.'],['🎉・sự-kiện','Hoạt động và sự kiện.'],['🤖・bot-spam','Lệnh bot và tiện ích.'],['📜・góp-ý','Góp ý với ban quản trị.']],
-      support: [['🎫・mở-ticket','Dùng nút ticket panel để mở kênh riêng tư.'],['❔・faq-hỗ-trợ','Các câu hỏi thường gặp.'],['🧾・hướng-dẫn-giao-dịch','Hướng dẫn giao dịch an toàn.']],
-      voice: [['🔊・voice-lounge','Phòng voice giao lưu chung.'],['🎮・gaming-party-1','Voice tìm đồng đội 1.'],['🎮・gaming-party-2','Voice tìm đồng đội 2.'],['🎮・gaming-party-3','Voice tìm đồng đội 3.'],['🤝・kết-bạn-voice','Voice làm quen bạn mới.'],['🛍️・trade-talk','Voice trao đổi và hỏi đáp.'],['🌙・chill-room','Phòng thư giãn.'],['🎵・music-lounge','Phòng nghe nhạc.']],
-      staff: [['🛡️・staff-chat','Kênh nội bộ đội ngũ.'],['🧾・staff-log','Log hoạt động của bot và dashboard.'],['✅・legit-review','Staff xem xét yêu cầu legit.'],['🛍️・trade-reports','Xử lý báo cáo giao dịch.'],['🎫・ticket-staff','Điều phối hỗ trợ.'],['🔨・mod-actions','Ghi chú xử lý moderation.']]
-    };
-    const result = { preset, roles: [], categories: [], channels: [], skipped: [], automation: {}, warnings: [] };
+    const groups = getServerBuilderGroups(topic);
+    const result = { preset, roles: [], categories: [], channels: [], migratedChannels: [], archivedChannels: [], skipped: [], automation: {}, warnings: [] };
     const roleSpecs = [
       { name: '👑 Admin', color: 0xED4245, permissions: [PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageRoles, PermissionFlagsBits.ManageMessages, PermissionFlagsBits.ModerateMembers, PermissionFlagsBits.ViewAuditLog] },
       { name: '🛡️ Moderator', color: 0x5865F2, permissions: [PermissionFlagsBits.ManageMessages, PermissionFlagsBits.ModerateMembers, PermissionFlagsBits.ViewAuditLog] },
@@ -4945,56 +4963,92 @@ app.post('/api/guilds/:guildId/server-builder', requireAuth, async (req, res) =>
     }
     await setConfig(guild.id, { auto_role_id: roleMap['👥 Member'].id });
     const everyone = guild.roles.everyone;
-    const groups = [
-      { key: 'start', name: '📌・BẮT ĐẦU', items: templates.start },
-      { key: 'community', name: '💬・TRÒ CHUYỆN & GIAO LƯU', items: templates.community },
-      { key: 'gaming', name: '🎮・GAME & KẾT BẠN', items: templates.gaming },
-      { key: 'trade', name: '🛍️・BUÔN BÁN & TRADE', items: templates.trade },
-      { key: 'fun', name: '🎉・BOT & GIẢI TRÍ', items: templates.fun },
-      { key: 'support', name: '🎫・HỖ TRỢ', items: templates.support },
-      { key: 'voice', name: '🔊・PHÒNG VOICE', items: templates.voice },
-      { key: 'staff', name: '🛡️・ĐỘI NGŨ', items: templates.staff, private: true }
+    const staffOverwrites = [
+      { id: everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+      { id: roleMap['👑 Admin'].id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
+      { id: roleMap['🛡️ Moderator'].id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
+      { id: roleMap['🧾 Trade Moderator'].id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
+      { id: roleMap['🆘 Support'].id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
+      { id: me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageMessages] }
     ];
     for (const group of groups) {
       let category = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === group.name);
+      let renamedLegacyCategory = false;
+      if (!category) {
+        const legacyCategoryName = getLegacyBuilderCategoryName(group.key);
+        if (legacyCategoryName) {
+          category = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === legacyCategoryName) || null;
+          if (category) {
+            await category.setName(group.name, 'Aki Server Builder category style update');
+            renamedLegacyCategory = true;
+          }
+        }
+      }
       const existedCategory = Boolean(category);
       if (!category) category = await guild.channels.create({
         name: group.name, type: ChannelType.GuildCategory,
-        permissionOverwrites: group.private ? [
-            { id: everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-            { id: roleMap['👑 Admin'].id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
-            { id: roleMap['🛡️ Moderator'].id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
-            { id: roleMap['🧾 Trade Moderator'].id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
-            { id: roleMap['🆘 Support'].id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
-            { id: me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageMessages] }
-          ] : undefined,
+        permissionOverwrites: group.private ? staffOverwrites : undefined,
         reason: 'Aki Server Builder template'
       });
       if (existedCategory) result.skipped.push('category:' + group.name);
-      result.categories.push({ name: category.name, created: !existedCategory });
+      result.categories.push({ name: category.name, created: !existedCategory, renamed: renamedLegacyCategory });
+
       for (const item of group.items) {
         const name = item[0], channelTopic = item[1];
         const type = group.key === 'voice' ? ChannelType.GuildVoice : ChannelType.GuildText;
-        const existing = guild.channels.cache.find(c => c.name === name && c.type === type);
-        if (existing) { result.skipped.push('channel:' + name); continue; }
+        let existing = guild.channels.cache.find(c => c.name === name && c.type === type) || null;
+        let migratedFrom = null;
+        if (!existing) {
+          const legacyName = getLegacyBuilderChannelName(name);
+          if (legacyName) {
+            existing = guild.channels.cache.find(c => c.name === legacyName && c.type === type) || null;
+            if (existing) migratedFrom = legacyName;
+          }
+        }
+        if (existing) {
+          const changed = existing.name !== name || existing.parentId !== category.id;
+          if (existing.name !== name) await existing.setName(name, 'Aki Server Builder channel style update');
+          if (existing.parentId !== category.id) await existing.setParent(category.id, { lockPermissions: true, reason: 'Aki Server Builder channel organization' });
+          if (migratedFrom || changed) result.migratedChannels.push({ name, from: migratedFrom, category: category.name });
+          else result.skipped.push('channel:' + name);
+          continue;
+        }
         const channel = await guild.channels.create({
           name, type, parent: category.id,
-          permissionOverwrites: group.private ? [
-            { id: everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-            { id: roleMap['👑 Admin'].id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
-            { id: roleMap['🛡️ Moderator'].id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
-            { id: roleMap['🧾 Trade Moderator'].id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
-            { id: roleMap['🆘 Support'].id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
-            { id: me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageMessages] }
-          ] : undefined,
+          permissionOverwrites: group.private ? staffOverwrites : undefined,
           topic: type === ChannelType.GuildText ? String(channelTopic || '').slice(0, 1024) || undefined : undefined,
           reason: 'Aki Server Builder template'
         });
         result.channels.push({ name: channel.name, type: type === ChannelType.GuildVoice ? 'voice' : 'text', category: category.name });
       }
     }
-    const rolePanelChannel = guild.channels.cache.find(c => c.name === '🎭・nhận-role' && c.type === ChannelType.GuildText);
-    const ticketPanelChannel = guild.channels.cache.find(c => c.name === '🎫・mở-ticket' && c.type === ChannelType.GuildText);
+
+    // Keep older Aki-generated channels, but move unused ones into a private archive
+    // so members see the compact layout while staff can still recover every message.
+    const legacyChannelNames = new Set(getLegacyBuilderChannelNames());
+    const legacyLeftovers = [...guild.channels.cache.values()].filter(channel =>
+      legacyChannelNames.has(channel.name) &&
+      [ChannelType.GuildText, ChannelType.GuildVoice].includes(channel.type)
+    );
+    if (legacyLeftovers.length) {
+      const archiveName = '📦・『KHO LƯU TRỮ』';
+      let archiveCategory = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === archiveName);
+      const archiveCreated = !archiveCategory;
+      if (!archiveCategory) archiveCategory = await guild.channels.create({
+        name: archiveName, type: ChannelType.GuildCategory,
+        permissionOverwrites: staffOverwrites,
+        reason: 'Aki Server Builder private archive for unused legacy channels'
+      });
+      for (const channel of legacyLeftovers) {
+        if (channel.parentId !== archiveCategory.id) {
+          await channel.setParent(archiveCategory.id, { lockPermissions: true, reason: 'Archive unused Aki builder channel; retain messages' });
+          result.archivedChannels.push({ name: channel.name, type: channel.type === ChannelType.GuildVoice ? 'voice' : 'text' });
+        }
+      }
+      result.categories.push({ name: archiveCategory.name, created: archiveCreated, private: true });
+    }
+    const rolePanelChannel = guild.channels.cache.find(c => c.name === '🎭・『nhận-role』' && c.type === ChannelType.GuildText);
+    const ticketPanelChannel = guild.channels.cache.find(c => c.name === '🎫・『mở-ticket』' && c.type === ChannelType.GuildText);
     try {
       const message = await setupRolePanel(guild, rolePanelChannel, req.session.user.id);
       result.automation.rolePanel = { channel: rolePanelChannel?.name || null, messageId: message.id, ok: true };
@@ -5002,17 +5056,18 @@ app.post('/api/guilds/:guildId/server-builder', requireAuth, async (req, res) =>
       result.automation.rolePanel = { ok: false }; result.warnings.push('Role panel: ' + error.message);
       console.warn('Server Builder role panel setup failed:', error.message);
     }
-    const hadTicketCategory = guild.channels.cache.some(c => c.type === ChannelType.GuildCategory && c.name === '🎫・TICKETS');
+    const ticketCategoryName = getTicketCategoryName();
+    const hadTicketCategory = guild.channels.cache.some(c => c.type === ChannelType.GuildCategory && [ticketCategoryName, '🎫・TICKETS'].includes(c.name));
     try {
       const message = await setupTicketPanel(guild, ticketPanelChannel, req.session.user.id);
       result.automation.ticketPanel = { channel: ticketPanelChannel?.name || null, messageId: message.id, ok: true };
-      const ticketCategory = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === '🎫・TICKETS');
+      const ticketCategory = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === ticketCategoryName);
       if (ticketCategory && !result.categories.some(item => item.name === ticketCategory.name)) result.categories.push({ name: ticketCategory.name, created: !hadTicketCategory });
     } catch (error) {
       result.automation.ticketPanel = { ok: false }; result.warnings.push('Ticket panel: ' + error.message);
       console.warn('Server Builder ticket panel setup failed:', error.message);
     }
-    await addActivity(guild.id, req.session.user.id, 'server-builder', JSON.stringify({ preset, roles: result.roles.length, categories: result.categories.length, channels: result.channels.length, automation: result.automation }));
+    await addActivity(guild.id, req.session.user.id, 'server-builder', JSON.stringify({ preset, roles: result.roles.length, categories: result.categories.length, channels: result.channels.length, migratedChannels: result.migratedChannels.length, archivedChannels: result.archivedChannels.length, automation: result.automation }));
     res.json({ ok: true, result });
   } catch (error) {
     console.error('Server Builder failed:', error);
