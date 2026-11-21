@@ -29,6 +29,7 @@ import { normalizeTagName, normalizeFaqKeyword, sanitizeCommunityContent, findMa
 import { normalizePage, slicePage } from './lib/page-utils.js';
 import { keepsCommandResultPrivate, summarizeCommandResult } from './lib/command-routing-utils.js';
 import { normalizeMessageTemplate, renderMessageTemplate } from './lib/message-template-utils.js';
+import { normalizeMemberChannelSelection, isMemberMessageChannel } from './lib/member-channel-utils.js';
 import { checkCommandCooldown, normalizeAutocompleteChoices, formatReminderList } from './lib/ux-utils.js';
 import { getCommandRegistrationScopes } from './lib/command-registration-utils.js';
 import { safeRuntimeErrorCode, classifyGatewayDebugMessage, classifyDiscordRestRoute, normalizeRateLimitDiagnostics, normalizeDiscordRestResponseDiagnostics, normalizeRetryAfterBodyValue } from './lib/runtime-diagnostics-utils.js';
@@ -1411,8 +1412,6 @@ const slashCommands = [
   new SlashCommandBuilder().setName('vc-join').setDescription('Bot vào voice.').setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild.toString()).addChannelOption(o => o.setName('channel').setDescription('Kênh voice').addChannelTypes(ChannelType.GuildVoice, ChannelType.GuildStageVoice).setRequired(true)),
   new SlashCommandBuilder().setName('vc-leave').setDescription('Bot rời voice.').setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild.toString()),
   new SlashCommandBuilder().setName('auto-voice').setDescription('Bật/tắt tự động giữ voice.').setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild.toString()).addBooleanOption(o => o.setName('enabled').setDescription('Bật hoặc tắt').setRequired(true)).addChannelOption(o => o.setName('channel').setDescription('Kênh voice').addChannelTypes(ChannelType.GuildVoice, ChannelType.GuildStageVoice).setRequired(false)),
-  new SlashCommandBuilder().setName('welcome-setup').setDescription('Chọn kênh chào thành viên mới.').setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild.toString()).addChannelOption(o => o.setName('channel').setDescription('Kênh chào mừng').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true)),
-  new SlashCommandBuilder().setName('goodbye-setup').setDescription('Chọn kênh thông báo thành viên rời server.').setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild.toString()).addChannelOption(o => o.setName('channel').setDescription('Kênh tạm biệt').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true)),
   new SlashCommandBuilder().setName('verify-setup').setDescription('Cấu hình cổng xác minh và cách ly tài khoản mới.').setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild.toString())
     .addBooleanOption(o => o.setName('enabled').setDescription('Bật hoặc tắt cổng xác minh').setRequired(true))
     .addChannelOption(o => o.setName('channel').setDescription('Kênh panel xác minh').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(false))
@@ -1479,13 +1478,10 @@ const contextMenuCommands = [
 ].map(command => command.toJSON());
 const commands = [...slashCommands, ...contextMenuCommands];
 
-const helpLines = [
-  ['ping', 'Kiểm tra latency'], ['server', 'Thông tin server'], ['userinfo', 'Thông tin user'], ['avatar', 'Avatar'], ['botinfo', 'Thông tin bot'], ['rank', 'Cấp độ và XP'], ['balance', 'Số dư xu'], ['daily', 'Nhận xu mỗi ngày'], ['work', 'Làm việc nhận xu'], ['leaderboard', 'Top level / xu'],
-  ['poll', 'Tạo bình chọn'], ['8ball', 'Quả cầu tiên tri'], ['roll', 'Xúc xắc'], ['coinflip', 'Đồng xu'], ['remind', 'Đặt lời nhắc 30m / 2h / 1d'], ['reminders', 'Lời nhắc đang chờ'], ['reminder-cancel', 'Huỷ lời nhắc'],
-  ['afk', 'AFK + ảnh/GIF riêng'], ['warn', 'Cảnh cáo'], ['warnings', 'Lịch sử cảnh cáo'], ['clear', 'Xoá tin nhắn'], ['slowmode', 'Slowmode'],
-  ['verify-setup', 'Cổng xác minh / role cách ly'], ['xp-setup', 'Cấu hình XP và role thưởng'], ['automod-setup', 'Cấu hình AutoMod/raid'], ['giveaway', 'Tạo giveaway'], ['giveaway-reroll', 'Reroll giveaway'], ['suggest', 'Gửi góp ý'], ['suggest-setup', 'Chọn kênh góp ý'], ['shop', 'Cửa hàng xu'], ['buy', 'Mua role bằng xu'], ['tag', 'Tag FAQ'], ['tag-set', 'Lưu tag'], ['tag-delete', 'Xoá tag'], ['faq-set', 'Cấu hình FAQ'], ['faq-delete', 'Xoá FAQ'], ['sell', 'Mở form đăng bán'], ['sell-setup', 'Cấu hình kênh đăng bán'], ['temp-voice-setup', 'Tạo voice room tạm'], ['tag', 'Hiển thị tag'], ['tag-set', 'Tạo/cập nhật tag'], ['tag-delete', 'Xoá tag'], ['faq-set', 'Cấu hình FAQ auto-reply'], ['faq-delete', 'Xoá FAQ'], ['automod-setup', 'Chống spam/mass mention/raid'], ['lock', 'Khoá kênh'], ['unlock', 'Mở khoá'], ['kick', 'Kick'], ['ban', 'Ban'], ['tempban', 'Ban tạm'], ['timeout', 'Timeout'], ['unban', 'Gỡ ban'], ['untimeout', 'Gỡ timeout'], ['delwarn', 'Xoá cảnh cáo'], ['case', 'Tra cứu case'], ['modlog', 'Nhật ký moderation'], ['role', 'Quản lý role'], ['vouch', 'Đánh giá giao dịch'], ['vouches', 'Danh sách vouch'], ['scamcheck', 'Kiểm tra scammer'], ['scam-add', 'Thêm cảnh báo scammer'],
-  ['announce', 'Thông báo'], ['legit', 'Staff xác minh thành viên'], ['ticket-setup', 'Đăng bảng ticket hỗ trợ'], ['role-panel', 'Đăng bảng tự nhận role'], ['vc-join', 'Vào voice'], ['vc-leave', 'Rời voice'], ['auto-voice', 'Tự động giữ voice'], ['welcome-setup', 'Cấu hình chào mừng'], ['goodbye-setup', 'Cấu hình tạm biệt']
-];
+const helpLines = [...new Map(commands
+  .filter(command => (!command.type || command.type === ApplicationCommandType.ChatInput) && command.name !== 'sell')
+  .map(command => [command.name, [command.name, command.description || 'Aki command']])
+).values()];
 
 const magic8 = [
   'Khả năng cao là có.', 'Không nên trông chờ vào nó.', 'Chắc chắn rồi.', 'Chưa thể nói trước.', 'Cứ thử đi.', 'Tui nghi là không.', 'Dấu hiệu khá tích cực.', 'Hỏi lại sau nhé.'
@@ -3082,16 +3078,6 @@ async function runCommand(name, ctx) {
       c.destroy();
       return reply('🎧 Đã rời voice.');
     }
-    case 'welcome-setup':
-    case 'goodbye-setup': {
-      ensureMemberPermission(user, PermissionFlagsBits.ManageGuild);
-      const targetChannel = args.channel ? await guild.channels.fetch(args.channel).catch(() => null) : null;
-      if (!targetChannel || ![ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(targetChannel.type)) throw new Error('Chọn kênh text hoặc announcement thuộc server này.');
-      const key = name === 'welcome-setup' ? 'welcome_channel_id' : 'goodbye_channel_id';
-      await setConfig(guild.id, { [key]: targetChannel.id });
-      await addActivity(guild.id, userId, name, '#' + targetChannel.name);
-      return reply((name === 'welcome-setup' ? '👋 Kênh chào mừng' : '👋 Kênh tạm biệt') + ' đã được đặt thành <#' + targetChannel.id + '>.');
-    }
     case 'xp-setup': {
       ensureMemberPermission(user, PermissionFlagsBits.ManageGuild);
       const current = await getGuildXpSettings(guild.id);
@@ -3404,7 +3390,7 @@ function extractInteractionArgs(interaction) {
   if (interaction.commandName === 'clear' || interaction.commandName === 'slowmode') out[interaction.commandName === 'clear' ? 'amount' : 'seconds'] = interaction.options.getInteger(interaction.commandName === 'clear' ? 'amount' : 'seconds');
   if (interaction.commandName === 'role') { out.mode = interaction.options.getString('mode'); out.user = getUserId(); out.role = interaction.options.getRole('role')?.id; }
   if (interaction.commandName === 'announce') out.message = interaction.options.getString('message');
-  if (['vc-join', 'welcome-setup', 'goodbye-setup', 'verify-setup', 'giveaway'].includes(interaction.commandName)) out.channel = interaction.options.getChannel('channel')?.id;
+  if (['vc-join', 'verify-setup', 'giveaway'].includes(interaction.commandName)) out.channel = interaction.options.getChannel('channel')?.id;
   if (interaction.commandName === 'giveaway') {
     out.prize = interaction.options.getString('prize');
     out.minutes = interaction.options.getInteger('minutes');
@@ -4116,6 +4102,50 @@ function recordRaidJoin(guildId, now, config) {
   return { triggered: recent.length >= threshold, count: recent.length };
 }
 
+async function sendMemberLifecycleMessage(kind, member) {
+  if (!['welcome', 'goodbye'].includes(kind)) throw new Error('Loại thông báo thành viên không hợp lệ.');
+  const guild = member?.guild;
+  if (!guild || !member?.user) throw new Error('Không nhận được dữ liệu thành viên từ Discord.');
+  const config = await getConfig(guild.id);
+  const channelField = kind === 'welcome' ? 'welcome_channel_id' : 'goodbye_channel_id';
+  const channelId = String(config?.[channelField] || '').trim();
+  if (!channelId) return null;
+  const channel = await guild.channels.fetch(channelId).catch(() => null);
+  if (!isMemberMessageChannel(channel, guild.id)) {
+    throw new Error(kind === 'welcome'
+      ? 'Kênh chào mừng đã bị xoá hoặc không phải kênh văn bản của server.'
+      : 'Kênh tạm biệt đã bị xoá hoặc không phải kênh văn bản của server.');
+  }
+  const botMember = guild.members.me || await guild.members.fetchMe();
+  const permissions = channel.permissionsFor(botMember);
+  if (!permissions?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks])) {
+    throw new Error('Bot thiếu quyền View Channel, Send Messages hoặc Embed Links trong #' + channel.name + '.');
+  }
+  const template = await getGuildMessageTemplate(guild.id, kind);
+  const payload = kind === 'welcome'
+    ? (template
+      ? buildMessageTemplateEmbed('welcome', template, member, guild)
+      : buildMessageTemplateEmbed('welcome', null, member, guild, '👋 Chào mừng thành viên mới!', 'Chào mừng {user} đến với **{server}**!\nHãy đọc nội quy và chọn role phù hợp nhé.'))
+    : (template
+      ? buildMessageTemplateEmbed('goodbye', template, member, guild)
+      : buildMessageTemplateEmbed('goodbye', null, member, guild, '👋 Một thành viên đã rời đi', '**{user}** đã rời khỏi **{server}**.'));
+  if (kind === 'welcome' && config?.verification_enabled && config.verification_channel_id) {
+    const embed = payload.embeds?.[0];
+    const currentDescription = embed?.data?.description || '';
+    if (embed) embed.setDescription((currentDescription + '\n\nHãy đến <#' + config.verification_channel_id + '> và nhấn nút xác minh để nhận role Member.').slice(0, 4000));
+  }
+  const sent = await channel.send(payload);
+  console.info('[member-message:' + kind + '] sent', { guildId: guild.id, channelId: channel.id, messageId: sent.id });
+  return sent;
+}
+async function reportMemberLifecycleFailure(kind, member, error) {
+  const message = String(error?.message || 'Unknown member event error').slice(0, 500);
+  console.error('[member-message:' + kind + '] failed', { guildId: member?.guild?.id || null, message });
+  if (member?.guild?.id) {
+    await addActivity(member.guild.id, member.id || null, 'member:' + kind + ':error', message).catch(() => {});
+    void reportRuntimeError(error, 'member-' + kind, member.guild.id);
+  }
+}
 bot.on('guildMemberAdd', async member => {
   let autoRoleName = null;
   let cfg = null;
@@ -4125,26 +4155,9 @@ bot.on('guildMemberAdd', async member => {
     const burst = recordRaidJoin(member.guild.id, Date.now(), cfg);
     if (burst.triggered) await beginRaidLockdown(member.guild, cfg, burst.count).catch(error => reportRuntimeError(error, 'automod-raid-lockdown', member.guild.id));
   }
-  // Welcome failures must never prevent a new member receiving their automatic role.
-  try {
-    if (cfg?.welcome_channel_id) {
-      const channel = await member.guild.channels.fetch(cfg.welcome_channel_id).catch(() => null);
-      if (!channel?.isTextBased?.()) throw new Error('Kênh welcome đã bị xoá hoặc không phải kênh text.');
-      const welcomeNextStep = cfg?.verification_enabled && cfg.verification_channel_id
-        ? 'Hãy đến <#' + cfg.verification_channel_id + '> và nhấn nút xác minh để nhận role Member.'
-        : '';
-      const template = await getGuildMessageTemplate(member.guild.id,'welcome');
-      const payload = template
-        ? buildMessageTemplateEmbed('welcome',template,member,member.guild)
-        : buildMessageTemplateEmbed('welcome',null,member,member.guild,'👋 Chào mừng thành viên mới!','Chào mừng {user} đến với **{server}**!\nHãy đọc nội quy và chọn role phù hợp nhé.');
-      if (welcomeNextStep) {
-        const embed = payload.embeds[0];
-        const currentDescription = embed.data.description || '';
-        embed.setDescription((currentDescription + '\n\n' + welcomeNextStep).slice(0,4000));
-      }
-      await channel.send(payload);
-    }
-  } catch (error) { void reportRuntimeError(error, 'welcome-message', member.guild.id); }
+  // Welcome delivery errors are visible in Render logs and dashboard activity.
+  try { await sendMemberLifecycleMessage('welcome', member); }
+  catch (error) { await reportMemberLifecycleFailure('welcome', member, error); }
   try {
     if (cfg?.verification_enabled) {
       const minDays = Math.min(365, Math.max(0, Number(cfg.verification_min_account_days) || 0));
@@ -4177,19 +4190,8 @@ bot.on('guildMemberAdd', async member => {
 });
 bot.on('guildMemberRemove', async member => {
   void revokeSocketGuildAccess(member.guild.id, member.id);
-  try {
-    const cfg = await getConfig(member.guild.id);
-    if (cfg.goodbye_channel_id) {
-      const channel = await member.guild.channels.fetch(cfg.goodbye_channel_id).catch(() => null);
-      if (channel?.isTextBased?.()) {
-        const template = await getGuildMessageTemplate(member.guild.id,'goodbye');
-        const payload = template
-          ? buildMessageTemplateEmbed('goodbye',template,member,member.guild)
-          : buildMessageTemplateEmbed('goodbye',null,member,member.guild,'👋 Một thành viên đã rời đi','**{user}** đã rời khỏi **{server}**.');
-        await channel.send(payload);
-      }
-    }
-  } catch (error) { void reportRuntimeError(error, 'goodbye-message', member.guild.id); }
+  try { await sendMemberLifecycleMessage('goodbye', member); }
+  catch (error) { await reportMemberLifecycleFailure('goodbye', member, error); }
   addActivity(member.guild.id, member.id, 'member:leave', `👋 ${member.user.globalName || member.user.username} đã rời server.`).catch(() => {});
 });
 bot.on('voiceStateUpdate', async (oldState, newState) => {
@@ -4638,12 +4640,31 @@ app.put('/api/guilds/:guildId/config', requireAuth, async (req, res) => {
       const me = guild.members.me || await guild.members.fetchMe();
       if (!logChannel.permissionsFor(me)?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks])) return res.status(403).json({ error: 'Bot needs View Channel, Send Messages and Embed Links in the selected audit channel.' });
     }
+    let memberChannelPatch = {};
+    try { memberChannelPatch = normalizeMemberChannelSelection(body); }
+    catch (error) { return res.status(400).json({ error: error.message || 'MEMBER_CHANNEL_INVALID' }); }
+    const memberChannelUpdates = Object.entries(memberChannelPatch).filter(([, channelId]) => Boolean(channelId));
+    if (memberChannelUpdates.length) {
+      const me = guild.members.me || await guild.members.fetchMe();
+      for (const [field, channelId] of memberChannelUpdates) {
+        const selected = await guild.channels.fetch(channelId).catch(() => null);
+        if (!isMemberMessageChannel(selected, guild.id)) {
+          throw Object.assign(new Error(field === 'welcome_channel_id'
+            ? 'Kênh chào mừng phải là kênh văn bản thuộc server đang chọn.'
+            : 'Kênh tạm biệt phải là kênh văn bản thuộc server đang chọn.'), { status: 400 });
+        }
+        if (!selected.permissionsFor(me)?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks])) {
+          throw Object.assign(new Error('Bot cần quyền View Channel, Send Messages và Embed Links trong #' + selected.name + '.'), { status: 403 });
+        }
+      }
+    }
     const configPatch = {
       auto_voice_enabled: nextAutoVoiceEnabled,
       auto_voice_channel_id: nextAutoVoiceChannelId,
       prefix: Object.prototype.hasOwnProperty.call(body, 'prefix') ? String(body.prefix || '!').slice(0, 3) : currentConfig.prefix || '!',
       log_channel_id: Object.prototype.hasOwnProperty.call(body, 'log_channel_id') ? (body.log_channel_id || null) : currentConfig.log_channel_id || null,
-      auto_role_id: Object.prototype.hasOwnProperty.call(body, 'auto_role_id') ? (body.auto_role_id || null) : currentConfig.auto_role_id || null
+      auto_role_id: Object.prototype.hasOwnProperty.call(body, 'auto_role_id') ? (body.auto_role_id || null) : currentConfig.auto_role_id || null,
+      ...memberChannelPatch
     };
     const config = await setConfig(guild.id, configPatch);
     if (voiceSettingsProvided) {
